@@ -28,7 +28,7 @@ Belt Tension Test utilizing printed methodology to ensure near-perfect belt tens
 ><br>
 >I print ASA so my specific command is as follows:
 ><br>
->```BELT_TENSION_TEST HOTEND=250 BED=110```
+>```BELT_TENSION_TEST HOTEND=245 BED=110```
 
 ```
 [gcode_macro BELT_TENSION_TEST]
