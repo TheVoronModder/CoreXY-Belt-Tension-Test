@@ -102,17 +102,23 @@ gcode:
   {% set By = Ay + bar_width + 20.0 %}
 
   # ---- Clamp stroke length per bar ----
-  # A bar forward vector = (+X, +Y); usable room from start:
-  {% set A_x_room = max(0.0, XMAX - M - Ax) %}
-  {% set A_y_room = max(0.0, YMAX - M - Ay) %}
+  # A bar forward vector = (+X, +Y); usable room from start (Jinja-safe clamps):
+  {% set _tmp = XMAX - M - Ax %}
+  {% if _tmp < 0 %}{% set A_x_room = 0.0 %}{% else %}{% set A_x_room = _tmp %}{% endif %}
+  {% set _tmp = YMAX - M - Ay %}
+  {% if _tmp < 0 %}{% set A_y_room = 0.0 %}{% else %}{% set A_y_room = _tmp %}{% endif %}
+
   {% set Lmax_A = 1.41421356 * (A_x_room if A_x_room < A_y_room else A_y_room) %}
   {% set L_A = (L_req if L_req <= Lmax_A else Lmax_A) %}
   {% set L_A_xy = L_A / 1.41421356 %}
   {% if L_A < 5.0 %}{% set L_A = 5.0 %}{% set L_A_xy = L_A/1.41421356 %}{% endif %}
 
-  # B bar forward vector = (+X, -Y)
-  {% set B_x_room = max(0.0, XMAX - M - Bx) %}
-  {% set B_y_room = max(0.0, By - M) %}
+  # B bar forward vector = (+X, -Y); usable room from start (Jinja-safe clamps):
+  {% set _tmp = XMAX - M - Bx %}
+  {% if _tmp < 0 %}{% set B_x_room = 0.0 %}{% else %}{% set B_x_room = _tmp %}{% endif %}
+  {% set _tmp = By - M %}
+  {% if _tmp < 0 %}{% set B_y_room = 0.0 %}{% else %}{% set B_y_room = _tmp %}{% endif %}
+
   {% set Lmax_B = 1.41421356 * (B_x_room if B_x_room < B_y_room else B_y_room) %}
   {% set L_B = (L_req if L_req <= Lmax_B else Lmax_B) %}
   {% set L_B_xy = L_B / 1.41421356 %}
@@ -124,7 +130,7 @@ gcode:
   # Required lanes across bar_width
   {% set passes_req = (bar_width / spacing)|int + 1 %}
 
-  # ---- Pass limits that include forward reach (this fixes out-of-range) ----
+  # ---- Pass limits that include forward reach (fixes out-of-range) ----
   # A steps +X -Y between lanes; farthest X reached is Ax + step*(p-1) + L_A_xy
   {% set A_pass_xlim = ((XMAX - M - Ax - L_A_xy) / step)|int + 1 %}
   {% set A_pass_ylim = ((Ay - M) / step)|int + 1 %}
