@@ -60,7 +60,8 @@ gcode:
   {% set XMAX = printer.toolhead.axis_maximum.x|float %}
   {% set YMAX = printer.toolhead.axis_maximum.y|float %}
   {% set M = margin|float %}
-  {% set L_req = (len|float if (len|float) <= 100.0 else 100.0) %}
+  {% set L_in = params.LEN|default(len)|float %}
+  {% set L_req = (L_in if L_in <= 100.0 else 100.0) %}
 
   # Home if needed
   {% set homed = printer.toolhead.homed_axes %}
@@ -95,160 +96,18 @@ gcode:
   {% set step = spacing / 1.41421356 %}
   {% set layers = (layers|int if (layers|int) > 0 else 1) %}
 
-  # Start positions (front-left safe zone)
-  {% set Ax = M + 25.0 %}
-  {% set Ay = M + bar_width + 10.0 %}
-  {% set Bx = Ax + 40.0 %}
-  {% set By = Ay + bar_width + 20.0 %}
+  # ---------- RAW start positions (front-left) ----------
+  {% set Ax_raw = M + 25.0 %}
+  {% set Ay_raw = M + bar_width + 10.0 %}
+  {% set Bx_raw = Ax_raw + 40.0 %}
+  {% set By_raw = Ay_raw + bar_width + 20.0 %}
 
-  # ---- Clamp stroke length per bar ----
-  # A bar forward vector = (+X, +Y); usable room from start (Jinja-safe clamps):
-  {% set _tmp = XMAX - M - Ax %}
+  # ---------- Stroke lengths from remaining room ----------
+  # A bar (+X,+Y): room clamps without max()
+  {% set _tmp = XMAX - M - Ax_raw %}
   {% if _tmp < 0 %}{% set A_x_room = 0.0 %}{% else %}{% set A_x_room = _tmp %}{% endif %}
-  {% set _tmp = YMAX - M - Ay %}
+  {% set _tmp = YMAX - M - Ay_raw %}
   {% if _tmp < 0 %}{% set A_y_room = 0.0 %}{% else %}{% set A_y_room = _tmp %}{% endif %}
-
-  {% set Lmax_A = 1.41421356 * (A_x_room if A_x_room < A_y_room else A_y_room) %}
-  {% set L_A = (L_req if L_req <= Lmax_A else Lmax_A) %}
-  {% set L_A_xy = L_A / 1.41421356 %}
-  {% if L_A < 5.0 %}{% set L_A = 5.0 %}{% set L_A_xy = L_A/1.41421356 %}{% endif %}
-
-  # B bar forward vector = (+X, -Y); usable room from start (Jinja-safe clamps):
-  {% set _tmp = XMAX - M - Bx %}
-  {% if _tmp < 0 %}{% set B_x_room = 0.0 %}{% else %}{% set B_x_room = _tmp %}{% endif %}
-  {% set _tmp = By - M %}
-  {% if _tmp < 0 %}{% set B_y_room = 0.0 %}{% else %}{% set B_y_room = _tmp %}{% endif %}
-
-  {% set Lmax_B = 1.41421356 * (B_x_room if B_x_room < B_y_room else B_y_room) %}
-  {% set L_B = (L_req if L_req <= Lmax_B else Lmax_B) %}
-  {% set L_B_xy = L_B / 1.41421356 %}
-  {% if L_B < 5.0 %}{% set L_B = 5.0 %}{% set L_B_xy = L_B/1.41421356 %}{% endif %}
-
-  {% set e_move_A = e_per_mm * L_A %}
-  {% set e_move_B = e_per_mm * L_B %}
-
-  # Required lanes across bar_width
-  {% set passes_req = (bar_width / spacing)|int + 1 %}
-
-  # ---- Pass limits that include forward reach (fixes out-of-range) ----
-  # A steps +X -Y between lanes; farthest X reached is Ax + step*(p-1) + L_A_xy
-  {% set A_pass_xlim = ((XMAX - M - Ax - L_A_xy) / step)|int + 1 %}
-  {% set A_pass_ylim = ((Ay - M) / step)|int + 1 %}
-  {% set passes_A = passes_req %}
-  {% if passes_A > A_pass_xlim %}{% set passes_A = A_pass_xlim %}{% endif %}
-  {% if passes_A > A_pass_ylim %}{% set passes_A = A_pass_ylim %}{% endif %}
-  {% if passes_A < 1 %}{% set passes_A = 1 %}{% endif %}
-
-  # B steps +X +Y between lanes; farthest X is Bx + step*(p-1) + L_B_xy; farthest Y is By + step*(p-1)
-  {% set B_pass_xlim = ((XMAX - M - Bx - L_B_xy) / step)|int + 1 %}
-  {% set B_pass_ylim = ((YMAX - M - By) / step)|int + 1 %}
-  {% set passes_B = passes_req %}
-  {% if passes_B > B_pass_xlim %}{% set passes_B = B_pass_xlim %}{% endif %}
-  {% if passes_B > B_pass_ylim %}{% set passes_B = B_pass_ylim %}{% endif %}
-  {% if passes_B < 1 %}{% set passes_B = 1 %}{% endif %}
-
-  # Modes
-  {% set was_abs = printer.gcode_move.absolute_coordinates %}
-  {% set abs_e = printer.gcode_move.absolute_extrude %}
-
-  G90
-  G92 E0
-  G1 Z{lh} F{travel_f}
-
-  # ===== BAR A (X+ Y+) =====
-  G1 X{Ax} Y{Ay} F{travel_f}
-  {% if abs_e %} G1 E{prime_e} F{prime_f} {% set eA = prime_e|float %}{% else %} G1 E{prime_e} F{prime_f} {% endif %}
-  {% for L in range(layers) %}
-    G91
-    {% for i in range(passes_A) %}
-      {% if abs_e %}{% set eA = eA + e_move_A %} G1 X{L_A_xy} Y{L_A_xy} E{eA} F{line_f}
-      {% else %} G1 X{L_A_xy} Y{L_A_xy} E{e_move_A} F{line_f}{% endif %}
-      G1 X{-L_A_xy} Y{-L_A_xy} F{travel_f}
-      {% if i < (passes_A - 1) %} G1 X{step} Y{-step} F{travel_f} {% endif %}
-    {% endfor %}
-    G1 X{-step*(passes_A-1)} Y{step*(passes_A-1)} F{travel_f}
-    G90
-    G1 Z{lh*(L+2)} F{travel_f}
-    G1 X{Ax} Y{Ay} F{travel_f}
-  {% endfor %}
-
-  # ===== BAR B (X+ Y-) =====
-  G1 X{Bx} Y{By} F{travel_f}
-  {% if abs_e %}{% set eB = 0.0 %}{% endif %}
-  {% for L in range(layers) %}
-    G91
-    {% for i in range(passes_B) %}
-      {% if abs_e %}{% set eB = eB + e_move_B %} G1 X{L_B_xy} Y{-L_B_xy} E{eB} F{line_f}
-      {% else %} G1 X{L_B_xy} Y{-L_B_xy} E{e_move_B} F{line_f}{% endif %}
-      G1 X{-L_B_xy} Y{L_B_xy} F{travel_f}
-      {% if i < (passes_B - 1) %} G1 X{step} Y{step} F{travel_f} {% endif %}
-    {% endfor %}
-    G1 X{-step*(passes_B-1)} Y{-step*(passes_B-1)} F{travel_f}
-    G90
-    G1 Z{lh*(layers + L + 2)} F{travel_f}
-    G1 X{Bx} Y{By} F{travel_f}
-  {% endfor %}
-
-  # ===== Labels (clamped to fit) =====
-  {% set label_h = label_h|float %}
-  {% set label_w = label_h * (label_w_frac|float) %}
-  {% set label_z = (layers * lh) + label_lift %}
-  {% set e_text_per_mm = e_per_mm %}
-  {% set eV = e_text_per_mm * label_h %}
-  {% set eW = e_text_per_mm * label_w %}
-
-  # Place A label
-  {% set Aox_raw = Ax %}
-  {% set Aoy_raw = Ay + bar_width + 2.0 %}
-  {% set Aox = Aox_raw if Aox_raw <= (XMAX - M - label_w) else (XMAX - M - label_w) %}
-  {% set Aoy = Aoy_raw if Aoy_raw <= (YMAX - M - label_h) else (YMAX - M - label_h) %}
-  G90
-  G1 Z{label_z} F{travel_f}
-  G1 X{Aox} Y{Aoy} F{travel_f}
-  G91
-  {% if abs_e %}
-    {% set eAt = eV %} G1 Y{label_h} E{eAt} F{label_f}
-    G1 X{label_w} F{travel_f}
-    {% set eAt = eAt + eV %} G1 Y{-label_h} E{eAt} F{label_f}
-    G1 Y{label_h/2.0} F{travel_f}
-    {% set eAt = eAt + eW %} G1 X{-label_w} E{eAt} F{label_f}
-  {% else %}
-    G1 Y{label_h} E{eV} F{label_f}
-    G1 X{label_w} F{travel_f}
-    G1 Y{-label_h} E{eV} F{label_f}
-    G1 Y{label_h/2.0} F{travel_f}
-    G1 X{-label_w} E{eW} F{label_f}
-  {% endif %}
-  G90
-
-  # Place B label
-  {% set Box_raw = Bx %}
-  {% set Boy_raw = By + bar_width + 2.0 %}
-  {% set Box = Box_raw if Box_raw <= (XMAX - M - label_w) else (XMAX - M - label_w) %}
-  {% set Boy = Boy_raw if Boy_raw <= (YMAX - M - label_h) else (YMAX - M - label_h) %}
-  G1 Z{label_z} F{travel_f}
-  G1 X{Box} Y{Boy} F{travel_f}
-  G91
-  {% if abs_e %}
-    {% set eBt = eV %} G1 Y{label_h} E{eBt} F{label_f}
-    {% set eBt = eBt + eW %} G1 X{label_w} E{eBt} F{label_f}
-    {% set eBt = eBt + (e_text_per_mm * (label_h/2.0)) %} G1 Y{-label_h/2.0} E{eBt} F{label_f}
-    G1 X{-label_w} F{travel_f}
-    {% set eBt = eBt + eW %} G1 X{label_w} E{eBt} F{label_f}
-    {% set eBt = eBt + (e_text_per_mm * (label_h/2.0)) %} G1 Y{-label_h/2.0} E{eBt} F{label_f}
-    {% set eBt = eBt + eW %} G1 X{-label_w} E{eBt} F{label_f}
-  {% else %}
-    G1 Y{label_h} E{eV} F{label_f}
-    G1 X{label_w} E{eW} F{label_f}
-    G1 Y{-label_h/2.0} E{e_text_per_mm * (label_h/2.0)} F{label_f}
-    G1 X{-label_w} F{travel_f}
-    G1 X{label_w} E{eW} F{label_f}
-    G1 Y{-label_h/2.0} E{e_text_per_mm * (label_h/2.0)} F{label_f}
-    G1 X{-label_w} E{eW} F{label_f}
-  {% endif %}
-  G90
-
-  G92 E0
-  {% if was_abs %} G90 {% else %} G91 {% endif %}
+  {% set Lmax_A = 1.414213_
 
 ```
