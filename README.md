@@ -15,3 +15,10 @@ Belt Tension Test utilizing printed methodology to ensure near-perfect belt tens
 >[!NOTE]
 >What to look for
 >The bar that shows more wobble/ghosting, ragged ends, or shorter-than-commanded length (tip-to-tip along the stroke direction) points to the looser belt. Tighten that belt a little, reprint, and match the results.
+
+>[!WARNING]
+>THINGS TO ADJUST!
+>HOTEND and BED temp
+
+```
+
